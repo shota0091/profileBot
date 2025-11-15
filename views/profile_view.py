@@ -30,6 +30,9 @@ def build_profile_embed(
 
     def nz(s: str | None) -> str:
         return (s or "").strip() or "未入力"
+    
+    def nc(s: str | None) -> str:
+        return (s or "").strip() or "よろしくお願いします"
 
     embed = discord.Embed(color=0x2B2D31, title="✅ あなたのプロフィール")
     embed.add_field(name="👤 名前", value=name, inline=False)
@@ -40,7 +43,7 @@ def build_profile_embed(
     embed.add_field(name="🎯 趣味", value=nz(hobby), inline=False)
     embed.add_field(name="💘 好きなタイプ", value=nz(like_type), inline=False)
     embed.add_field(name="✨ 特技", value=nz(skill), inline=False)
-    embed.add_field(name="💬 ひとこと", value=nz(comment), inline=False)
+    embed.add_field(name="💬 ひとこと", value=nc(comment), inline=False)
 
     embed.set_footer(text="再編集はできません。変更したい場合は /delete_profile で削除後に登録し直してください。")
     return embed
