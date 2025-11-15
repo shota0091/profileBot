@@ -6,6 +6,9 @@ from typing import Optional
 from config.constants import REGIONS, GENDERS
 from services.profile_service import ProfileService
 from views.profile_view import build_profile_embed
+from discord import File
+import os
+from views.profile_image import build_profile_image
 
 # ========= 誕生日パーサ =========
 _VALID_DAY_31 = {1, 3, 5, 7, 8, 10, 12}
@@ -263,7 +266,11 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
     async def on_submit(self, itx: discord.Interaction):
         svc = ProfileService()
         if not svc.can_register(itx.user.id):
-            await itx.response.send_message("すでに登録済みです。/delete_profile で削除してから再登録してください。", ephemeral=True); return
+            await itx.response.send_message(
+                "すでに登録済みです。/delete_profile で削除してから再登録してください。",
+                ephemeral=True
+            )
+            return
 
         name = (itx.user.display_name or itx.user.name)[:50]
 
@@ -272,36 +279,49 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
 
         def nz(s: str | None) -> str:
             return (s or "").strip() or "未入力"
+        
+        def nc(s: str | None) -> str:
+            return (s or "").strip() or "よろしくお願いします"
+        
+        def ns(s: str) -> str:
+            if s == "男性":
+                return "♂"
+            elif s == "女性":
+                return "♀"
+            else:
+                return ""
+        
 
-        # ★ 県が未入力なら地域を表示用に利用。両方Noneなら「未入力」
+        # ★ 県が未入力なら地域を表示用に利用
         prefecture_display = self.prefecture or self.region or "未入力"
 
-        if self.prefecture:                           # 県がある → そのまま都道府県
-            prefecture_display = self.prefecture
-            prefecture_label = "都道府県"
-        elif self.region:                              # 県なし・地域あり → 地域ラベルで表示
-            prefecture_display = self.region
-            prefecture_label = "地域"
-        else:                                          # どちらも未入力
-            prefecture_display = "未入力"
-            prefecture_label = "都道府県"
+        # 誕生日文字列を用意
+        birth_str = "未入力"
+        if self.month and self.day:
+            birth_str = f"{self.month}月{self.day}日"
 
-        embed = build_profile_embed(
+        # ====== ここを embed → 画像生成に変更 ======
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        out_path = os.path.join(BASE_DIR + "/templates/", str(itx.user.id) +"_profile.png")
+        img_path = build_profile_image(
             name=name,
-            prefecture=prefecture_display,
-            gender=self.gender,
-            age=self.age,
-            birth_year=None,
-            birth_month=self.month,
-            birth_day=self.day,
+            region_or_pref=prefecture_display,
+            age=str(self.age or "未入力"),
+            birth=birth_str,
             occupation=nz(self.occupation.value),
             hobby=nz(self.hobby.value),
-            like_type=nz(self.like_type.value),
             skill=nz(self.skill.value),
-            comment=nz(self.comment.value),
-            prefecture_label=prefecture_label,   # ★ ラベルを渡す
+            like_type=nz(self.like_type.value),
+            comment=nc(self.comment.value),
+            out_path=nz(out_path),
+            sex=ns(self.gender)
         )
-        msg = await itx.channel.send(embed=embed)
+
+        file = File(out_path)
+        await itx.response.defer(ephemeral=True)
+
+        msg = await itx.channel.send(file=file)
+        await itx.followup.send("登録しました！", ephemeral=True)
 
         try:
             svc.save_message_location(itx.user.id, msg.id, itx.channel.id)
@@ -318,5 +338,3 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
                 await self.detail_itx.edit_original_response(content="詳細入力は完了しました。", view=None)
             except Exception:
                 pass
-
-        await itx.response.send_message("登録しました！", ephemeral=True)
