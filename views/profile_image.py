@@ -2,10 +2,12 @@ from PIL import Image, ImageDraw, ImageFont
 import os, textwrap
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
+ASSETS_DIR = os.path.realpath(ASSETS_DIR)
+
 TEMPLATE_PATH = os.path.join(ASSETS_DIR, "template.jpeg")
 
 # Mac のヒラギノフォント
-JP_FONT_PATH = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
+JP_FONT_PATH = os.path.join(ASSETS_DIR, "ヒラギノ角ゴシック W3.ttc")
 
 def get_font(size=28):
     return ImageFont.truetype(JP_FONT_PATH, size)
