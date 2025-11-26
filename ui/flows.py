@@ -245,10 +245,11 @@ class DetailButtonView(View):
 
 # ===== 6：モーダル2（詳細：職業/趣味/好き/好きなタイプ/嫌い） =====
 class FinalModal(Modal, title="プロフィール詳細入力"):
-    def __init__(self, region:str|None, prefecture:str|None, gender:str,
-                 age:int|None, year:int|None, month:int|None, day:int|None,
+    def __init__(self, region: str | None, prefecture: str | None, gender: str,
+                 age: int | None, year: int | None, month: int | None, day: int | None,
                  origin_interaction: discord.Interaction,
                  detail_interaction: Optional[discord.Interaction] = None):
+
         super().__init__(timeout=180)
         self.region, self.prefecture, self.gender = region, prefecture, gender
         self.age, self.year, self.month, self.day = age, year, month, day
@@ -256,14 +257,63 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         self.detail_itx = detail_interaction
 
         self.occupation = TextInput(label="職業", required=False, max_length=100)
-        self.hobby      = TextInput(label="趣味", required=False, max_length=255)
-        self.skill      = TextInput(label="特技", required=False, max_length=255)
-        self.like_type  = TextInput(label="好きなタイプ", required=False, max_length=255)
-        self.comment    = TextInput(label="ひとこと", required=False, max_length=255)
+
+        self.hobby = TextInput(
+            label="趣味",
+            placeholder="空白で改行できます。最大５つまで。例) 筋トレ ゲーム",
+            required=False, max_length=255
+        )
+
+        self.skill = TextInput(
+            label="特技",
+            placeholder="空白で改行できます。最大５つまで。例) 料理 プログラミング",
+            required=False, max_length=255
+        )
+
+        self.like_type = TextInput(
+            label="好きなタイプ",
+            placeholder="空白で改行できます。最大５つまで。例) よく食べる人 優しい人",
+            required=False, max_length=255
+        )
+
+        self.comment = TextInput(label="ひとこと", required=False, max_length=255)
+
         for x in (self.occupation, self.hobby, self.skill, self.like_type, self.comment):
             self.add_item(x)
 
+    @staticmethod
+    def count_check(name: str, value: str):
+        """空白区切りで最大5つまで。それ以上ならエラーを返す"""
+        if not value:
+            return None
+
+        items = value.split()
+        if len(items) > 5:
+            return f"{name}は最大5つまでです。（現在 {len(items)} 個）"
+
+        return None
+
     async def on_submit(self, itx: discord.Interaction):
+
+        # ===== 空白区切りチェック =====
+        errors = []
+
+        err = self.count_check("趣味", self.hobby.value)
+        if err: errors.append(err)
+
+        err = self.count_check("特技", self.skill.value)
+        if err: errors.append(err)
+
+        err = self.count_check("好きなタイプ", self.like_type.value)
+        if err: errors.append(err)
+
+        if errors:
+            return await itx.response.send_message(
+                "\n".join(errors),
+                ephemeral=True
+            )
+
+        # ===== ここから保存処理 =====
         svc = ProfileService()
         if not svc.can_register(itx.user.id):
             await itx.response.send_message(
@@ -274,35 +324,30 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
 
         name = (itx.user.display_name or itx.user.name)[:50]
 
-        # DB保存（年は常に None）
         svc.register(itx.user.id, name, self.age, None, self.month, self.day)
 
         def nz(s: str | None) -> str:
             return (s or "").strip() or "未入力"
-        
+
         def nc(s: str | None) -> str:
             return (s or "").strip() or "よろしくお願いします"
-        
+
         def ns(s: str) -> str:
             if s == "男性":
                 return "♂"
             elif s == "女性":
                 return "♀"
-            else:
-                return ""
-        
+            return ""
 
-        # ★ 県が未入力なら地域を表示用に利用
         prefecture_display = self.prefecture or self.region or "未入力"
 
-        # 誕生日文字列を用意
         birth_str = "未入力"
         if self.month and self.day:
             birth_str = f"{self.month}月{self.day}日"
 
-        # ====== ここを embed → 画像生成に変更 ======
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        out_path = os.path.join(BASE_DIR + "/templates/", str(itx.user.id) +"_profile.png")
+        out_path = os.path.join(BASE_DIR, "templates", f"{itx.user.id}_profile.png")
+
         img_path = build_profile_image(
             name=name,
             region_or_pref=prefecture_display,
@@ -313,7 +358,7 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
             skill=nz(self.skill.value),
             like_type=nz(self.like_type.value),
             comment=nc(self.comment.value),
-            out_path=nz(out_path),
+            out_path=out_path,
             sex=ns(self.gender)
         )
 
@@ -323,18 +368,44 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         msg = await itx.channel.send(file=file)
         await itx.followup.send("登録しました！", ephemeral=True)
 
+
+        # ===============================
+        # ★ プロフィール登録者にロール付与
+        # ===============================
+        ROLE_NAME = "プロフィール登録済み"  # ←好きなロール名に変えてOK
+
+        guild = itx.guild
+        member = itx.user
+        role = discord.utils.get(guild.roles, name=ROLE_NAME)
+
+        if role:
+            try:
+                await member.add_roles(role)
+                print(f"{member} にロール '{ROLE_NAME}' を付与しました")
+            except Exception as e:
+                print(f"ロール付与に失敗しました: {e}")
+        else:
+            print(f"ロールが見つかりません: {ROLE_NAME}")
+
         try:
             svc.save_message_location(itx.user.id, msg.id, itx.channel.id)
         except Exception:
             pass
 
         try:
-            await self.origin.edit_original_response(content="入力ありがとうございました。登録が完了しました。", view=None)
+            await self.origin.edit_original_response(
+                content="入力ありがとうございました。登録が完了しました。",
+                view=None
+            )
         except Exception:
             pass
 
         if self.detail_itx is not None:
             try:
-                await self.detail_itx.edit_original_response(content="詳細入力は完了しました。", view=None)
+                await self.detail_itx.edit_original_response(
+                    content="詳細入力は完了しました。",
+                    view=None
+                )
             except Exception:
                 pass
+

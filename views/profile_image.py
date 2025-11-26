@@ -1,98 +1,299 @@
 from PIL import Image, ImageDraw, ImageFont
-import os, textwrap
+import os
+import re
 
+# =========================
+# パス設定
+# =========================
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 ASSETS_DIR = os.path.realpath(ASSETS_DIR)
 
-TEMPLATE_PATH = os.path.join(ASSETS_DIR, "template.jpeg")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATE_PATH = os.path.join(BASE_DIR, "assets/template.jpeg")
 
-# Mac のヒラギノフォント
+# Mac のヒラギノフォント（assets 内に置いた W3）
 JP_FONT_PATH = os.path.join(ASSETS_DIR, "ヒラギノ角ゴシック W3.ttc")
 
-def get_font(size=28):
+
+# =========================
+# フォント取得
+# =========================
+def get_font(size: int):
     return ImageFont.truetype(JP_FONT_PATH, size)
 
-def draw_text_box(draw, xy, box_width, box_height, text, font, fill="black", align="left", valign="top"):
-    """
-    枠内に収めるテキスト描画
-    - ピクセル幅で折り返し
-    - 縦方向は枠を超える前に最後の行を「…」にして省略
-    """
-    if not font:
+
+# =========================
+# スペース改行変換
+# =========================
+def format_multiline(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r"[ 　]+", "\n", text.strip())
+
+
+# =========================
+# 自然な折り返し（文字幅ベース）
+# =========================
+def _wrap_text(text: str, font: ImageFont.FreeTypeFont, box_width: int):
+    lines = []
+
+    for raw in text.split("\n"):
+        current = ""
+        for ch in raw:
+            test = current + ch
+            w = font.getbbox(test)[2] - font.getbbox(test)[0]
+
+            if w <= box_width:
+                current = test
+            else:
+                lines.append(current)
+                current = ch
+
+        if current:
+            lines.append(current)
+
+    return lines
+
+
+# =========================
+# 汎用描画関数（折り返し + 「…」省略 + 自動縮小）
+# =========================
+def draw_text_box(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    box_width: int,
+    box_height: int,
+    text: str,
+    font: ImageFont.FreeTypeFont | None = None,
+    fill: str = "black",
+    align: str = "left",
+    valign: str = "top",
+    auto_shrink: bool = False,
+    min_font_size: int = 10,
+):
+    if not text:
+        return
+
+    if font is None:
         font = get_font(24)
 
-    ascent, descent = font.getmetrics()
-    line_height = ascent + descent + 2  # ちょっと余白
-    max_lines = box_height // line_height
+    # ===== 自動縮小 =====
+    if auto_shrink:
+        size = font.size
+        while size >= min_font_size:
+            test_font = get_font(size)
+            ascent, descent = test_font.getmetrics()
+            line_h = ascent + descent + 4
+            max_lines = max(1, box_height // line_h)
 
-    # ===== 折り返し処理 =====
-    lines = []
-    for raw_line in text.split("\n"):
-        line = ""
-        for ch in raw_line:
-            test_line = line + ch
-            if draw.textlength(test_line, font=font) <= box_width:
-                line = test_line
-            else:
-                lines.append(line)
-                line = ch
-        if line:
-            lines.append(line)
+            wrapped = _wrap_text(text, test_font, box_width)
+
+            if len(wrapped) <= max_lines:
+                font = test_font
+                break
+
+            size -= 1
+
+    # ===== 行分割 =====
+    ascent, descent = font.getmetrics()
+    line_height = ascent + descent + 4
+    max_lines = max(1, box_height // line_height)
+
+    wrapped = _wrap_text(text, font, box_width)
+
+    # ===== はみ出す場合「…」 =====
+    if len(wrapped) > max_lines:
+        display = wrapped[:max_lines]
+        last = display[-1]
+
+        while font.getbbox(last + "…")[2] - font.getbbox(last + "…")[0] > box_width and last:
+            last = last[:-1]
+
+        display[-1] = last + "…"
+    else:
+        display = wrapped
 
     # ===== 縦位置 =====
-    if valign == "middle":
-        total_height = min(len(lines), max_lines) * line_height
-        y = xy[1] + (box_height - total_height)//2
-    else:
-        y = xy[1]
+    total_h = len(display) * line_height
+    y = xy[1] if valign == "top" else xy[1] + (box_height - total_h) // 2
 
     # ===== 描画 =====
-    for i, line in enumerate(lines):
-        if i >= max_lines:
-            break
+    for line in display:
+        w = font.getbbox(line)[2] - font.getbbox(line)[0]
 
-        # 最終行が残り切れない場合は「…」
-        if i == max_lines - 1 and i < len(lines) - 1:
-            while draw.textlength(line + "…", font=font) > box_width and line:
-                line = line[:-1]
-            line += "…"
-
-        w = draw.textlength(line, font=font)
-        if align == "center":
-            x = xy[0] + (box_width - w)//2
-        else:
+        if align == "left":
             x = xy[0]
+        else:
+            x = xy[0] + (box_width - w) // 2
 
         draw.text((x, y), line, font=font, fill=fill)
         y += line_height
 
+
+# =========================
+# プロフィール画像生成
+# =========================
 def build_profile_image(
-    name, region_or_pref, age, birth, occupation,
-    hobby, skill, like_type, comment,
-    out_path,sex
+    name: str,
+    region_or_pref: str,
+    age: str,
+    birth: str,
+    occupation: str,
+    hobby: str,
+    skill: str,
+    like_type: str,
+    comment: str,
+    out_path: str,
+    sex: str = "",
 ):
     img = Image.open(TEMPLATE_PATH).convert("RGBA")
     draw = ImageDraw.Draw(img)
-    font = get_font(26)
 
-# ==== 上部（名前）====
-    draw_text_box(draw, (130, 172), 320, 40, name + " " + sex, font, valign="middle")
+    # ---- フォント ----
+    font_name = get_font(28)
+    font_main = get_font(18)
+    font_box = get_font(18)
+    font_comment = get_font(18)
 
-# ==== プロフィールテーブル ====
-    draw_text_box(draw, (120, 240), 200, 35, region_or_pref, get_font(16), valign="middle")  # 地域
-    draw_text_box(draw, (378, 240), 120, 35, age, get_font(16), valign="middle")             # 年齢
+    # ======================
+    # 名前（大枠）
+    # ======================
+    draw_text_box(
+        draw=draw,
+        xy=(130, 172),
+        box_width=500,
+        box_height=40,
+        text=name + (" " + sex if sex else ""),
+        font=font_name,
+        fill="black",
+        align="left",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=16,
+    )
 
-    draw_text_box(draw, (120, 285), 200, 70, birth, get_font(16), valign="middle")           # 誕生日
-    draw_text_box(draw, (378, 285), 120, 70, occupation, get_font(16), valign="middle")      # 職業
+    # ======================
+    # 地域 / 年齢 / 誕生日 / 職業
+    # ======================
+    draw_text_box(
+        draw=draw,
+        xy=(120, 240),
+        box_width=200,
+        box_height=35,
+        text=region_or_pref,
+        font=font_main,
+        fill="black",
+        align="left",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=12,
+    )
 
-# ==== 趣味・特技・好きなタイプ ====
-    draw_text_box(draw, (35, 455), 150, 140, hobby, get_font(16), align="center", valign="top")
-    draw_text_box(draw, (230, 455), 150, 140, skill, get_font(16), align="center", valign="top")
-    draw_text_box(draw, (430, 455), 150, 140, like_type, get_font(16), align="center", valign="top")
+    draw_text_box(
+        draw=draw,
+        xy=(378, 240),
+        box_width=200,
+        box_height=35,
+        text=age,
+        font=font_main,
+        fill="black",
+        align="left",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=12,
+    )
 
-# ==== ひとこと ====
-    draw_text_box(draw, (230, 690), 450, 110, comment, get_font(16), align="left", valign="top")
+    draw_text_box(
+        draw=draw,
+        xy=(120, 285),
+        box_width=200,
+        box_height=70,
+        text=birth,
+        font=font_main,
+        fill="black",
+        align="left",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=12,
+    )
 
+    draw_text_box(
+        draw=draw,
+        xy=(378, 285),
+        box_width=150,
+        box_height=70,
+        text=occupation,
+        font=font_main,
+        fill="black",
+        align="left",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=12,
+    )
 
+    # ======================
+    # 趣味・特技・好きなタイプ
+    # ======================
+
+    draw_text_box(
+        draw=draw,
+        xy=(35, 405),
+        box_width=150,
+        box_height=200,
+        text=format_multiline(hobby),
+        font=font_box,
+        fill="black",
+        align="center",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=10,
+    )
+
+    draw_text_box(
+        draw=draw,
+        xy=(230, 405),
+        box_width=150,
+        box_height=200,
+        text=format_multiline(skill),
+        font=font_box,
+        fill="black",
+        align="center",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=10,
+    )
+
+    draw_text_box(
+        draw=draw,
+        xy=(430, 405),
+        box_width=150,
+        box_height=200,
+        text=format_multiline(like_type),
+        font=font_box,
+        fill="black",
+        align="center",
+        valign="middle",
+        auto_shrink=True,
+        min_font_size=10,
+    )
+
+    # ======================
+    # ひとこと欄（大枠）
+    # ======================
+    draw_text_box(
+        draw=draw,
+        xy=(40, 680),
+        box_width=520,
+        box_height=170,
+        text=format_multiline(comment),
+        font=font_comment,
+        fill="black",
+        align="left",
+        valign="top",
+        auto_shrink=True,
+        min_font_size=12,
+    )
+
+    # 保存
     img.save(out_path, "PNG")
     return out_path
