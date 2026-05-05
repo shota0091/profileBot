@@ -4,7 +4,7 @@ load_dotenv()
 
 def get_conn():
     return pymysql.connect(
-        host=os.getenv("Dmysql_host","127.0.0.1"),
+        host=os.getenv("mysql_host","127.0.0.1"),
         port=int(os.getenv("mysql_port","3306")),
         user=os.getenv("mysql_user"),
         password=os.getenv("mysql_password"),

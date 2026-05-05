@@ -170,7 +170,7 @@ class AgeBirthdayModal(Modal, title="年齢・誕生日の入力（任意）"):
                 await itx.response.send_message("年齢は2桁で入力してください（例: 18〜99）。", ephemeral=True); return
             age_val = int(age_txt)
             if not (18 <= age_val <= 99):
-                await itx.response.send_message("年齢は18〜70の範囲で入力してください。", ephemeral=True); return
+                await itx.response.send_message("年齢は18〜99の範囲で入力してください。", ephemeral=True); return
 
         b_month = b_day = None
         b_raw = (self.birthday.value or "").strip()
@@ -294,6 +294,8 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         return None
 
     async def on_submit(self, itx: discord.Interaction):
+        # Discord は 3秒以内に応答がないとタイムアウトするため最初に defer する
+        await itx.response.defer(ephemeral=True)
 
         # ===== 空白区切りチェック =====
         errors = []
@@ -308,15 +310,12 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         if err: errors.append(err)
 
         if errors:
-            return await itx.response.send_message(
-                "\n".join(errors),
-                ephemeral=True
-            )
+            return await itx.followup.send("\n".join(errors), ephemeral=True)
 
         # ===== ここから保存処理 =====
         svc = ProfileService()
         if not svc.can_register(itx.user.id):
-            await itx.response.send_message(
+            await itx.followup.send(
                 "すでに登録済みです。/delete_profile で削除してから再登録してください。",
                 ephemeral=True
             )
@@ -363,8 +362,6 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         )
 
         file = File(out_path)
-        await itx.response.defer(ephemeral=True)
-
         msg = await itx.channel.send(file=file)
         await itx.followup.send("登録しました！", ephemeral=True)
 
