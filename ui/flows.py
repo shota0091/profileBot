@@ -313,6 +313,16 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         if errors:
             return await itx.followup.send("\n".join(errors), ephemeral=True)
 
+        try:
+            await self._process_registration(itx)
+        except Exception as e:
+            logging.exception("プロフィール登録エラー (user=%s): %s", itx.user.id, e)
+            await itx.followup.send(
+                "プロフィール登録中にエラーが発生しました。もう一度 `/profile` からやり直してください。",
+                ephemeral=True
+            )
+
+    async def _process_registration(self, itx: discord.Interaction):
         # ===== ここから保存処理 =====
         svc = ProfileService()
         if not svc.can_register(itx.user.id):
@@ -323,8 +333,6 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
             return
 
         name = (itx.user.display_name or itx.user.name)[:50]
-
-        svc.register(itx.user.id, name, self.age, None, self.month, self.day)
 
         def nz(s: str | None) -> str:
             return (s or "").strip() or "未入力"
@@ -348,7 +356,7 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         out_path = os.path.join(BASE_DIR, "templates", f"{itx.user.id}_profile.png")
 
-        img_path = build_profile_image(
+        build_profile_image(
             name=name,
             region_or_pref=prefecture_display,
             age=str(self.age or "未入力"),
@@ -364,26 +372,29 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
 
         file = File(out_path)
         msg = await itx.followup.send(file=file, wait=True)
-        await itx.followup.send("登録しました！", ephemeral=True)
 
+        svc.register(itx.user.id, name, self.age, None, self.month, self.day)
+        await itx.followup.send("登録しました！", ephemeral=True)
 
         # ===============================
         # ★ プロフィール登録者にロール付与
         # ===============================
-        ROLE_NAME = "プロフィール登録済み"  # ←好きなロール名に変えてOK
+        ROLE_NAME = "プロフィール登録済み"
 
         guild = itx.guild
-        member = itx.user
-        role = discord.utils.get(guild.roles, name=ROLE_NAME)
-
-        if role:
-            try:
-                await member.add_roles(role)
-                logging.info("ロール付与: %s → %s", member, ROLE_NAME)
-            except Exception as e:
-                logging.warning("ロール付与失敗: %s", e)
+        if guild is not None:
+            member = itx.user
+            role = discord.utils.get(guild.roles, name=ROLE_NAME)
+            if role:
+                try:
+                    await member.add_roles(role)
+                    logging.info("ロール付与: %s → %s", member, ROLE_NAME)
+                except Exception as e:
+                    logging.warning("ロール付与失敗: %s", e)
+            else:
+                logging.warning("ロールが見つかりません: %s", ROLE_NAME)
         else:
-            logging.warning("ロールが見つかりません: %s", ROLE_NAME)
+            logging.warning("guild が None のためロール付与をスキップ (user=%s)", itx.user.id)
 
         try:
             svc.save_message_location(itx.user.id, msg.id, itx.channel_id)
