@@ -1,5 +1,6 @@
 # ui/flows.py ーーー 年齢/誕生日 →（ボタン）→ 詳細モーダル
 import re
+import logging
 import discord
 from discord.ui import View, Select, Modal, TextInput, Button
 from typing import Optional
@@ -185,8 +186,8 @@ class AgeBirthdayModal(Modal, title="年齢・誕生日の入力（任意）"):
         # 性別セレクトのエフェメラルを畳む
         try:
             await self.origin.edit_original_response(content="年齢・誕生日の入力を受け付けました。", view=None)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("origin.edit_original_response failed: %s", e)
 
         # 詳細ボタン（region/prefectureを引き継ぐ）
         view = DetailButtonView(
@@ -362,7 +363,7 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         )
 
         file = File(out_path)
-        msg = await itx.channel.send(file=file)
+        msg = await itx.followup.send(file=file, wait=True)
         await itx.followup.send("登録しました！", ephemeral=True)
 
 
@@ -378,24 +379,24 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
         if role:
             try:
                 await member.add_roles(role)
-                print(f"{member} にロール '{ROLE_NAME}' を付与しました")
+                logging.info("ロール付与: %s → %s", member, ROLE_NAME)
             except Exception as e:
-                print(f"ロール付与に失敗しました: {e}")
+                logging.warning("ロール付与失敗: %s", e)
         else:
-            print(f"ロールが見つかりません: {ROLE_NAME}")
+            logging.warning("ロールが見つかりません: %s", ROLE_NAME)
 
         try:
-            svc.save_message_location(itx.user.id, msg.id, itx.channel.id)
-        except Exception:
-            pass
+            svc.save_message_location(itx.user.id, msg.id, itx.channel_id)
+        except Exception as e:
+            logging.error("save_message_location failed: %s", e)
 
         try:
             await self.origin.edit_original_response(
                 content="入力ありがとうございました。登録が完了しました。",
                 view=None
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("origin.edit_original_response failed: %s", e)
 
         if self.detail_itx is not None:
             try:
@@ -403,6 +404,6 @@ class FinalModal(Modal, title="プロフィール詳細入力"):
                     content="詳細入力は完了しました。",
                     view=None
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("detail_itx.edit_original_response failed: %s", e)
 

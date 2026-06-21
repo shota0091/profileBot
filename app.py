@@ -1,4 +1,5 @@
 import os
+import logging
 import discord
 from discord import app_commands
 from dotenv import load_dotenv
@@ -16,7 +17,6 @@ svc = ProfileService()
 
 @tree.command(name="profile", description="プロフィール登録を開始します")
 async def profile_cmd(itx: discord.Interaction):
-    svc = ProfileService()
     if not svc.can_register(itx.user.id):
         await itx.response.send_message(
             "すでに登録済みです。/delete_profile で削除してから再登録してください。",
@@ -48,8 +48,8 @@ async def delete_profile_cmd(itx: discord.Interaction):
                 msg = await channel.fetch_message(int(message_id))
                 await msg.delete()
                 deleted = True
-            except Exception:
-                pass  # 既に削除済み/権限不足/見つからない でも続行
+            except Exception as e:
+                logging.warning("メッセージ削除失敗（削除済みまたは権限不足）: %s", e)
 
     svc.soft_delete_profile(user_id)
 
